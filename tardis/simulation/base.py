@@ -559,13 +559,9 @@ class Simulation(PlasmaStateStorerMixin, HDFWriterMixin):
             self.last_no_of_packets, self.no_of_virtual_packets
         )
 
-        # Set up spectrum solver integrator and virtual spectrum
-        self.spectrum_solver.setup_optional_spectra(
-            self.transport.transport_state,
-            v_packets_energy_hist,
-            FormalIntegrator(
-                self.simulation_state, self.plasma, self.transport
-            ),
+        # Set up spectrum solver integrator
+        self.spectrum_solver._integrator = FormalIntegrator(
+            self.simulation_state, self.plasma, self.transport
         )
 
         self.reshape_plasma_state_store(self.iterations_executed)
