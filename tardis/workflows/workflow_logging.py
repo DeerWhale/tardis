@@ -19,6 +19,26 @@ class WorkflowLogging:
     ):
         logging_state(log_level, configuration, specific_log_level)
 
+    def log_iteration_results(
+        self, emitted_luminosity, absorbed_luminosity, luminosity_requested
+    ):
+        """Print current iteration information to log at INFO level
+
+        Parameters
+        ----------
+        emitted_luminosity : Quantity
+            Current iteration emitted luminosity
+        absorbed_luminosity : Quantity
+            Current iteration absorbed luminosity
+        luminosity_requested : Quantity
+            The requested luminosity for the simulation
+        """
+        logger.info(
+            f"\n\tLuminosity emitted   = {emitted_luminosity:.3e}\n"
+            f"\tLuminosity absorbed  = {absorbed_luminosity:.3e}\n"
+            f"\tLuminosity requested = {luminosity_requested:.3e}\n"
+        )
+
     def log_plasma_state(
         self,
         t_rad,
@@ -58,50 +78,34 @@ class WorkflowLogging:
         plasma_state_log["next_w"] = next_dilution_factor
         plasma_state_log.columns.name = "Shell No."
 
-        logger.info("\n\tPlasma stratification:")
-
         if is_notebook():
-            self.log_dataframe_notebook(plasma_state_log, log_sampling)
+            logger.info("\n\tPlasma stratification:")
+
+            # Displaying the DataFrame only when the logging level is NOTSET, DEBUG or INFO
+            if logger.level <= logging.INFO:
+                if not logger.filters:
+                    display(
+                        plasma_state_log.iloc[::log_sampling].style.format(
+                            "{:.3g}"
+                        )
+                    )
+                elif logger.filters[0].log_level == 20:
+                    display(
+                        plasma_state_log.iloc[::log_sampling].style.format(
+                            "{:.3g}"
+                        )
+                    )
         else:
-            self.log_dataframe_console(plasma_state_log, log_sampling)
+            output_df = ""
+            plasma_output = plasma_state_log.iloc[::log_sampling].to_string(
+                float_format=lambda x: f"{x:.3g}",
+                justify="center",
+            )
+            for value in plasma_output.split("\n"):
+                output_df = output_df + f"\t{value}\n"
+            logger.info("\n\tPlasma stratification:")
+            logger.info(f"\n{output_df}")
 
         logger.info(
             f"\n\tCurrent t_inner = {t_inner:.3f}\n\tExpected t_inner for next iteration = {next_t_inner:.3f}\n"
         )
-
-    def log_dataframe_notebook(self, dataframe, step):
-        """Logs a dataframe in a notebook with a step sample
-
-        Parameters
-        ----------
-        dataframe : pd.DataFrame
-            Dataframe to display
-        step : int
-            Step to use when sampling the dataframe
-        """
-        # Displaying the DataFrame only when the logging level is NOTSET, DEBUG or INFO
-        if logger.level <= logging.INFO:
-            if not logger.filters:
-                display(dataframe.iloc[::step].style.format("{:.3g}"))
-            elif logger.filters[0].log_level == 20:
-                display(dataframe.iloc[::step].style.format("{:.3g}"))
-
-    def log_dataframe_console(self, dataframe, step):
-        """Logs a dataframe to console with a step sample
-
-        Parameters
-        ----------
-        dataframe : pd.DataFrame
-            Dataframe to display
-        step : int
-            Step to use when sampling the dataframe
-        """
-        output_df = ""
-        output = dataframe.iloc[::step].to_string(
-            float_format=lambda x: f"{x:.3g}",
-            justify="center",
-        )
-        for value in output.split("\n"):
-            output_df = output_df + f"\t{value}\n"
-
-        logger.info(f"\n{output_df}")
