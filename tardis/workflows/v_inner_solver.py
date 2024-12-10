@@ -34,7 +34,14 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         if tau is not None:
             self.TAU_TARGET = np.log(tau)
 
+        self.completed_iterations_v_inner = 0 
+        self.consecutive_converges_count_v_inner = 0
+        self.iterations_v_inner = np.full((self.total_iterations, self.total_iterations), np.nan) 
+        self.iterations_mean_optical_depth = np.full((self.total_iterations, self.total_iterations, self.simulation_state.no_of_shells), np.nan) 
+        # v_inner_iteration, transport_iteration, shell
+
         initial_v_inner = self.estimate_v_inner()
+        self.iterations_v_inner[0] = initial_v_inner
 
         self.simulation_state.geometry.v_inner_boundary = initial_v_inner
         self.simulation_state.blackbody_packet_source.radius = (
@@ -55,6 +62,9 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
                 self.simulation_state,
             )[self.mean_optical_depth]
         )
+
+        self.iterations_v_inner[self.completed_iterations_v_inner, self.completed_iterations] = self.simulation_state.v_inner_boundary
+        self.iterations_mean_optical_depth[self.completed_iterations_v_inner, self.completed_iterations,:] = tau_integ
 
         interpolator = interp1d(
             tau_integ,
@@ -168,15 +178,6 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
 
         mask = estimated_values["mask"]
 
-        if not np.all(mask == self.property_mask):
-            convergence_statuses.append(False)
-            # Need to set status to False if change in mask size
-            logger.info(
-                f"Resized Geometry, Convergence Suppressed\n"
-                f"\t  Old Geometry: {self.print_mask(mask)}\n"
-                f"\t  New Geometry: {self.print_mask(self.property_mask)}"
-            )
-
         for key, solver in self.convergence_solvers.items():
             current_value = getattr(self.simulation_state, key)
             estimated_value = estimated_values[key]
@@ -189,12 +190,17 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             else:
                 no_of_shells = 1
 
-            convergence_statuses.append(
-                solver.get_convergence_status(
-                    current_value, estimated_value, no_of_shells
+            if key == "v_inner_boundary":
+                self.v_inner_convergence_status = solver.get_convergence_status(
+                        current_value, estimated_value, no_of_shells
+                    )
+            else:
+                convergence_statuses.append(
+                    solver.get_convergence_status(
+                        current_value, estimated_value, no_of_shells
+                    )
                 )
-            )
-
+            
         if np.all(convergence_statuses):
             hold_iterations = self.convergence_strategy.hold_iterations
             self.consecutive_converges_count += 1
@@ -204,33 +210,55 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             )
 
             return self.consecutive_converges_count == hold_iterations + 1
+        
+        
 
         self.consecutive_converges_count = 0
+        self.consecutive_converges_count_v_inner = 0
         return False
 
-    def solve_simulation_state(self, estimated_values):
-        """Update the simulation state with new inputs computed from previous
-        iteration estimates.
+    def check_convergence_v_inner(
+        self,
+        estimated_values
+    ):
+        """Check convergence status for v_inner
 
         Parameters
         ----------
         estimated_values : dict
-            Estimated from the previous iterations
+            Estimates to check convergence
 
         Returns
         -------
-        next_values : dict
-            The next values assigned to the simulation state
+        bool
+            If convergence has occurred
         """
-        next_values = super().solve_simulation_state(estimated_values)
-        self.simulation_state.geometry.v_inner_boundary = next_values[
-            "v_inner_boundary"
-        ]
-        self.simulation_state.blackbody_packet_source.radius = (
-            self.simulation_state.r_inner[0]
-        )
 
-        return next_values
+        mask = estimated_values["mask"]
+
+        convergence_statuses = [self.v_inner_convergence_status]
+
+        if not np.all(mask == self.property_mask):
+            convergence_statuses.append(False)
+            # Need to set status to False if change in mask size
+            logger.info(
+                f"Resized Geometry, Convergence Suppressed\n"
+                f"\t  Old Geometry: {self.print_mask(mask)}\n"
+                f"\t  New Geometry: {self.print_mask(self.property_mask)}"
+            )
+
+
+        if np.all(convergence_statuses):
+            hold_iterations = self.convergence_strategy.hold_iterations
+            self.consecutive_converges_count_v_inner += 1
+            logger.info(
+                f"V_inner Iteration converged {self.consecutive_converges_count_v_inner:d}/{(hold_iterations + 1):d} consecutive "
+                f"times."
+            )
+            return self.consecutive_converges_count_v_inner == hold_iterations + 1
+        
+        return False
+
 
     def solve_plasma(
         self,
@@ -304,38 +332,58 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
 
     def run(self):
         """Run the TARDIS simulation until convergence is reached"""
-        converged = False
-        while self.completed_iterations < self.total_iterations - 1:
+        v_inner_converged = False
+        while self.completed_iterations_v_inner < self.total_iterations - 1:
             logger.info(
-                f"\n\tStarting iteration {(self.completed_iterations + 1):d} of {self.total_iterations:d}"
+                f"\n\tStarting v_inner solver iteration {(self.completed_iterations_v_inner + 1):d} of {self.total_iterations:d}"
             )
 
-            opacity_states = self.solve_opacity()
+            converged = False
+            self.completed_iterations = 0
+            while self.completed_iterations < self.total_iterations - 1:
+                logger.info(
+                    f"\n\t\t --- Starting transport iteration {(self.completed_iterations + 1):d} of {self.total_iterations:d}"
+                )
 
-            transport_state, virtual_packet_energies = self.solve_montecarlo(
-                opacity_states, self.real_packet_count
+                opacity_states = self.solve_opacity()
+
+                transport_state, virtual_packet_energies = self.solve_montecarlo(
+                    opacity_states, self.real_packet_count
+                )
+
+                (
+                    estimated_values,
+                    estimated_radfield_properties,
+                ) = self.get_convergence_estimates(transport_state)
+
+                next_simulation_state_values = self.solve_simulation_state(estimated_values)
+
+                self.solve_plasma(
+                    estimated_radfield_properties,
+                    estimated_values["mask"],
+                )
+
+                converged = self.check_convergence(estimated_values)
+
+                self.completed_iterations += 1
+
+                if converged and self.convergence_strategy.stop_if_converged:
+                    break
+            
+            self.simulation_state.geometry.v_inner_boundary = next_simulation_state_values[
+                "v_inner_boundary"
+            ]
+            self.simulation_state.blackbody_packet_source.radius = (
+                self.simulation_state.r_inner[0]
             )
 
-            (
-                estimated_values,
-                estimated_radfield_properties,
-            ) = self.get_convergence_estimates(transport_state)
+            v_inner_converged = self.check_convergence_v_inner(estimated_values)
+            self.completed_iterations_v_inner += 1
+            if v_inner_converged and self.convergence_strategy.stop_if_converged:
+                    break
 
-            self.solve_simulation_state(estimated_values)
 
-            self.solve_plasma(
-                estimated_radfield_properties,
-                estimated_values["mask"],
-            )
-
-            converged = self.check_convergence(estimated_values)
-
-            self.completed_iterations += 1
-
-            if converged and self.convergence_strategy.stop_if_converged:
-                break
-
-        if converged:
+        if v_inner_converged:
             logger.info("\n\tStarting final iteration")
         else:
             logger.error(
