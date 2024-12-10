@@ -41,7 +41,6 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         # v_inner_iteration, transport_iteration, shell
 
         initial_v_inner = self.estimate_v_inner()
-        self.iterations_v_inner[0] = initial_v_inner
 
         self.simulation_state.geometry.v_inner_boundary = initial_v_inner
         self.simulation_state.blackbody_packet_source.radius = (
@@ -63,7 +62,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             )[self.mean_optical_depth]
         )
 
-        self.iterations_v_inner[self.completed_iterations_v_inner, self.completed_iterations] = self.simulation_state.v_inner_boundary
+        self.iterations_v_inner[self.completed_iterations_v_inner, self.completed_iterations] = self.simulation_state.v_inner_boundary.value
         self.iterations_mean_optical_depth[self.completed_iterations_v_inner, self.completed_iterations,:] = tau_integ
 
         interpolator = interp1d(
