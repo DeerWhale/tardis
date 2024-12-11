@@ -34,6 +34,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         if tau is not None:
             self.TAU_TARGET = np.log(tau)
 
+        self.iterations_v_inner = np.full(self.total_iterations, np.nan) 
         self.iterations_mean_optical_depth = np.full((self.total_iterations, self.simulation_state.no_of_shells), np.nan) 
         initial_v_inner = self.estimate_v_inner()
 
@@ -56,8 +57,10 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
                 self.simulation_state,
             )[self.mean_optical_depth]
         )
-        
+
+        self.iterations_v_inner[self.completed_iterations] = self.simulation_state.v_inner_boundary.value
         self.iterations_mean_optical_depth[self.completed_iterations,:] = tau_integ 
+        
         interpolator = interp1d(
             tau_integ,
             self.simulation_state.geometry.v_inner,  # Only use the active values as we only need a numerical estimate, not an index
