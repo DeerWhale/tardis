@@ -6,6 +6,7 @@ from astropy import units as u
 
 from tardis import constants as const
 from tardis.io.model.parse_atom_data import parse_atom_data
+from tardis.io.model.parse_simulation_state import parse_simulation_state
 from tardis.model import SimulationState
 from tardis.opacities.macro_atom.macroatom_solver import MacroAtomSolver
 from tardis.opacities.opacity_solver import OpacitySolver
@@ -36,9 +37,8 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         atom_data = parse_atom_data(configuration)
 
         # set up states and solvers
-        self.simulation_state = SimulationState.from_config(
-            configuration,
-            atom_data=atom_data,
+        self.simulation_state = parse_simulation_state(
+            configuration, None, False, {}, atom_data
         )
 
         plasma_solver_factory = PlasmaSolverFactory(
