@@ -67,7 +67,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
 
         interpolator = interp1d(
             tau_integ,
-            self.simulation_state.geometry.v_inner,  # Only use the active values as we only need a numerical estimate, not an index
+            self.simulation_state.v_inner,  # Only use the active values as we only need a numerical estimate, not an index
             fill_value="extrapolate",
         )
 

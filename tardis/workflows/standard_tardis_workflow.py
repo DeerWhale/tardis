@@ -27,6 +27,7 @@ class StandardTARDISWorkflow(
         "iterations_t_rad",
         "iterations_electron_densities",
         "iterations_t_inner",
+        "iterations_mean_optical_depth",
         "spectrum_solver",
     ]
 
