@@ -34,8 +34,9 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         if tau is not None:
             self.TAU_TARGET = np.log(tau)
 
-        self.iterations_v_inner = np.full(self.total_iterations, np.nan) 
         self.iterations_mean_optical_depth = np.full((self.total_iterations, self.simulation_state.no_of_shells), np.nan) 
+        self.iterations_values = {'t_radiative':[], 'dilution_factor':[], 't_inner':[], 'v_inner_boundary':[], 'mask':[]}
+
         initial_v_inner = self.estimate_v_inner()
 
         self.simulation_state.geometry.v_inner_boundary = initial_v_inner
@@ -66,8 +67,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             )[self.mean_optical_depth]
         )
 
-        self.iterations_v_inner[self.completed_iterations] = self.simulation_state.v_inner_boundary.value
-        self.iterations_mean_optical_depth[self.completed_iterations,:] = tau_integ 
+        self.iterations_mean_optical_depth[self.completed_iterations,self.simulation_state.geometry.v_inner_boundary_index:] = tau_integ[self.simulation_state.geometry.v_inner_boundary_index:] 
         
         interpolator = interp1d(
             tau_integ,
@@ -344,6 +344,8 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             converged = self.check_convergence(estimated_values)
 
             self.completed_iterations += 1
+            for key, value in estimated_values.items():
+                self.iterations_values[key].append(value)
 
             if converged and self.convergence_strategy.stop_if_converged:
                 break
