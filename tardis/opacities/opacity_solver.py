@@ -29,6 +29,7 @@ class OpacitySolver:
         """
         self.line_interaction_type = line_interaction_type
         self.disable_line_scattering = disable_line_scattering
+        self.opacity_state = None
 
     def legacy_solve(self, plasma) -> OpacityState:
         """
@@ -102,5 +103,7 @@ class OpacitySolver:
         opacity_state = OpacityState.from_plasma(
             plasma, tau_sobolev, beta_sobolev
         )
+
+        self.opacity_state = opacity_state
 
         return opacity_state
