@@ -70,8 +70,8 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         self.iterations_mean_optical_depth[self.completed_iterations,self.simulation_state.geometry.v_inner_boundary_index:] = tau_integ[self.simulation_state.geometry.v_inner_boundary_index:] 
         
         interpolator = interp1d(
-            tau_integ,
-            self.simulation_state.geometry.v_inner,  # Only use the active values as we only need a numerical estimate, not an index
+            tau_integ[self.simulation_state.geometry.v_inner_boundary_index:],
+            self.simulation_state.geometry.v_inner[self.simulation_state.geometry.v_inner_boundary_index:],  # Only use the active values as we only need a numerical estimate, not an index
             fill_value="extrapolate",
         )
 
