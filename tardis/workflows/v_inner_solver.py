@@ -51,9 +51,17 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
 
         Need some way to return and inspect the optical depths for later logging
         """
+
+        if self.opacity_solver.opacity_state is None:
+            opacity_state = self.opacity_solver.solve(self.plasma_solver)
+            tau_sobolevs = opacity_state.tau_sobolev
+        else:
+            tau_sobolevs = self.opacity_solver.opacity_state.tau_sobolev
+
         tau_integ = np.log(
             get_tau_integ(
                 self.plasma_solver,
+                tau_sobolevs,
                 self.simulation_state,
             )[self.mean_optical_depth]
         )
@@ -63,7 +71,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         
         interpolator = interp1d(
             tau_integ,
-            self.simulation_state.v_inner,  # Only use the active values as we only need a numerical estimate, not an index
+            self.simulation_state.geometry.v_inner,  # Only use the active values as we only need a numerical estimate, not an index
             fill_value="extrapolate",
         )
 
@@ -354,5 +362,6 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         )
         self.initialize_spectrum_solver(
             transport_state,
+            opacity_states,
             virtual_packet_energies,
         )

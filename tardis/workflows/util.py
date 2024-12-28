@@ -2,13 +2,15 @@ import numpy as np
 from astropy import constants as const
 
 
-def get_tau_integ(plasma, simulation_state, bin_size=10):
+def get_tau_integ(plasma, tau_sobolevs, simulation_state, bin_size=10):
     """Estimate the integrated mean optical depth at each velocity bin
 
     Parameters
     ----------
     plasma : tardis.plasma.BasePlasma
         The tardis legacy plasma
+    tau_sobolevs : pd.DataFrame
+        tau_sobolevs
     simulation_state : tardis.model.base.SimulationState
         the current simulation state
     bin_size : int, optional.  Default : 10
@@ -23,11 +25,11 @@ def get_tau_integ(plasma, simulation_state, bin_size=10):
             Planck Mean Optical Depth
     """
     index = plasma.atomic_data.lines.nu.index
-    taus = plasma.tau_sobolevs.loc[index]
+    taus = tau_sobolevs.loc[index]
     freqs = plasma.atomic_data.lines.nu.values
     order = np.argsort(freqs)
     freqs = freqs[order]
-    taus = plasma.tau_sobolevs.values[order]
+    taus = tau_sobolevs.values[order]
 
     extra = bin_size - len(freqs) % bin_size
     extra_freqs = np.arange(extra + 1) + 1
@@ -44,8 +46,7 @@ def get_tau_integ(plasma, simulation_state, bin_size=10):
     freqs = freqs[1 : n_bins * bin_size + 1]
 
     ct = simulation_state.time_explosion.cgs.value * const.c.cgs.value
-    # t_rad = simulation_state.radiation_field_state.temperature.cgs.value
-    t_rad = simulation_state.t_radiative.cgs.value
+    t_rad = simulation_state.radiation_field_state.temperature.cgs.value
 
     h = const.h.cgs.value
     c = const.c.cgs.value
@@ -79,8 +80,7 @@ def get_tau_integ(plasma, simulation_state, bin_size=10):
     ) ** -1
 
     dr = (
-        # simulation_state.geometry.r_outer - simulation_state.geometry.r_inner
-        simulation_state.r_outer - simulation_state.r_inner
+        simulation_state.geometry.r_outer - simulation_state.geometry.r_inner
     ).cgs.value
     dtau = kappa_planck * dr
     planck_integ_tau = np.cumsum(dtau[::-1])[::-1]
