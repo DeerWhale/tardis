@@ -31,16 +31,23 @@ def get_tau_integ(plasma, tau_sobolevs, simulation_state, bin_size=10):
     freqs = freqs[order]
     taus = tau_sobolevs.values[order]
 
-    extra = bin_size - len(freqs) % bin_size
-    extra_freqs = np.arange(extra + 1) + 1
-    extra_taus = np.zeros((extra + 1, taus.shape[1]))
-    freqs = np.hstack((extra_freqs, freqs))
-    taus = np.vstack((extra_taus, taus))
+    check_bin_size = True
+    while check_bin_size:
+        extra = bin_size - len(freqs) % bin_size
+        extra_freqs = np.arange(extra + 1) + 1
+        extra_taus = np.zeros((extra + 1, taus.shape[1]))
+        freqs = np.hstack((extra_freqs, freqs))
+        taus = np.vstack((extra_taus, taus))
 
-    bins_low = freqs[:-bin_size:bin_size]
-    bins_high = freqs[bin_size::bin_size]
-    delta_nu = bins_high - bins_low
-    n_bins = len(delta_nu)
+        bins_low = freqs[:-bin_size:bin_size]
+        bins_high = freqs[bin_size::bin_size]
+        delta_nu = bins_high - bins_low
+        n_bins = len(delta_nu)
+
+        if np.any(delta_nu == 0):
+            bin_size += 10
+        else:
+            check_bin_size = False
 
     taus = taus[1 : n_bins * bin_size + 1]
     freqs = freqs[1 : n_bins * bin_size + 1]
