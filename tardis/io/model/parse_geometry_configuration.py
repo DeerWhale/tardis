@@ -43,7 +43,7 @@ def parse_structure_from_config(config):
         velocity = quantity_linspace(
             structure_config.velocity.start,
             structure_config.velocity.stop,
-            structure_config.velocity.num + 1,
+            int(structure_config.velocity.num) + 1,
         ).cgs
 
     elif structure_config.type == "file":
