@@ -4,7 +4,7 @@ from astropy import units as u
 
 from tardis.io.model.readers.base import read_density_file
 from tardis.model.geometry.radial1d import HomologousRadial1DGeometry
-from tardis.util.base import quantity_linspace
+from tardis.util.base import quantity_linspace, quantity_log_linspace
 
 
 def parse_structure_from_config(config):
@@ -40,11 +40,22 @@ def parse_structure_from_config(config):
     temperature = None
     structure_config = config.model.structure
     if structure_config.type == "specific":
-        velocity = quantity_linspace(
-            structure_config.velocity.start,
-            structure_config.velocity.stop,
-            structure_config.velocity.num + 1,
-        ).cgs
+        if structure_config.velocity.sampling_method == "linear":
+            velocity = quantity_linspace(
+                structure_config.velocity.start,
+                structure_config.velocity.stop,
+                int(structure_config.velocity.num) + 1,
+            ).cgs
+        elif structure_config.velocity.sampling_method == "log_linear":
+            velocity = quantity_log_linspace(
+                structure_config.velocity.start,
+                structure_config.velocity.stop,
+                int(structure_config.velocity.num) + 1,
+            ).cgs
+        else:
+            raise NotImplementedError(
+                f"Velocity sampling method {structure_config.velocity.sampling_method} not implemented"
+            )
 
     elif structure_config.type == "file":
         if os.path.isabs(structure_config.filename):

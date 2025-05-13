@@ -553,6 +553,46 @@ def quantity_linspace(start, stop, num, **kwargs):
     )
 
 
+def quantity_log_linspace(start, stop, num, **kwargs):
+    """
+    Essentially the same input parameters as logspace, but
+    calculated for an astropy quantity start and stop.
+
+    Parameters
+    ----------
+    start : astropy.Quantity
+        Starting value of the sequence
+    stop : astropy.Quantity
+        End value of the sequence
+    num : int
+        Number of samples to generate
+
+    Returns
+    -------
+    astropy.Quantity
+        Returns num evenly spaced characters of type astropy.Quantity
+
+    Raises
+    ------
+    ValueError
+        If start and stop values have no unit attribute.
+    """
+    if not (hasattr(start, "unit") and hasattr(stop, "unit")):
+        raise ValueError(
+            "Both start and stop need to be quantities with a " "unit attribute"
+        )
+
+    return (
+        np.logspace(
+            np.log10(start.value),
+            np.log10(stop.to(start.unit).value),
+            num,
+            **kwargs,
+        )
+        * start.unit
+    )
+
+
 def convert_abundances_format(fname, delimiter=r"\s+"):
     """
     Changes format of file containing abundances into data frame
