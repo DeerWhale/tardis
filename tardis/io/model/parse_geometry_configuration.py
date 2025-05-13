@@ -47,7 +47,7 @@ def parse_structure_from_config(config):
                 int(structure_config.velocity.num) + 1,
             ).cgs
         elif structure_config.velocity.sampling_method == "log_linear":
-            velocity = quantity_loglinspace(
+            velocity = quantity_log_linspace(
                 structure_config.velocity.start,
                 structure_config.velocity.stop,
                 int(structure_config.velocity.num) + 1,
