@@ -44,6 +44,15 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         super().__init__(configuration, self.log_level, self.specific_log_level)
         atom_data = parse_atom_data(configuration)
 
+        # set virtual packet tracking 
+        if configuration.montecarlo.no_of_virtual_packets > 0:
+            self.enable_virtual_packet_logging = True
+            logger.info(
+                "Virtual packet tracking is enabled. "
+                "This will slow down the simulation."
+            )
+        else:
+            self.enable_virtual_packet_logging = False
         # set up states and solvers
         if csvy:
             self.simulation_state = SimulationState.from_csvy(
