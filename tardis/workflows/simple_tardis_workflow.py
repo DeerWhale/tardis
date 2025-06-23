@@ -44,7 +44,7 @@ class SimpleTARDISWorkflow(WorkflowLogging):
             # randomly pick a shell above this density value
             t_exp = configuration.supernova.time_explosion.to(u.day).value
             t0 = configuration.model.structure.density.time_0.to(u.day).value
-            density_at_t0 = self.simulation_state.density.to(u.g/u.cm**3).value*(t0/t_exp)**3
+            density_at_t0 = self.simulation_state.density.to(u.g/u.cm**3).value*(t_exp/t0)**3
             index_of_starting_rho = np.where(
                 density_at_t0 <= zero_Ca_starting_rho
             )[0][0]
