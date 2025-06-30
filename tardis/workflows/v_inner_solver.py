@@ -29,8 +29,15 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         mean_optical_depth="rosseland",
         tau=None,
         csvy=False,
+        zero_Ca_density=None,
+        move_Ca_mass_fraction_to_atomic_number=None,
     ):
-        super().__init__(configuration, csvy)
+        super().__init__(
+            configuration,
+            csvy=csvy,
+            zero_Ca_density=zero_Ca_density,
+            move_Ca_mass_fraction_to_atomic_number=move_Ca_mass_fraction_to_atomic_number,
+        )
         self.mean_optical_depth = mean_optical_depth.lower()
 
         self.convergence_solvers["v_inner_boundary"] = ConvergenceSolver(
@@ -60,9 +67,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             (self.total_iterations, self.simulation_state.no_of_shells), np.nan
         )
         self.iterations_t_inner = np.full(self.total_iterations, np.nan) * u.K
-        self.iterations_v_inner_boundary = (
-            np.full(self.total_iterations, np.nan) * u.cm / u.s
-        )
+        self.iterations_v_inner_boundary = np.full(self.total_iterations, np.nan) * u.cm / u.s
         self.iterations_mean_optical_depth = np.full(
             (self.total_iterations, self.simulation_state.no_of_shells), np.nan
         )
@@ -70,9 +75,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         initial_v_inner = self.estimate_v_inner()
 
         self.simulation_state.geometry.v_inner_boundary = initial_v_inner
-        self.simulation_state.blackbody_packet_source.radius = (
-            self.simulation_state.r_inner[0]
-        )
+        self.simulation_state.blackbody_packet_source.radius = self.simulation_state.r_inner[0]
         self.final_integrated_tau = None
 
     def store_plasma_state(
@@ -112,14 +115,12 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         """
         self.iterations_t_rad[i, -num_active_shells:] = t_radiative
         self.iterations_w[i, -num_active_shells:] = dilution_factor
-        self.iterations_electron_densities[i, -num_active_shells:] = (
-            electron_densities.values[-num_active_shells:]
-        )
-        self.iterations_t_inner[i] = t_inner
-        self.iterations_v_inner_boundary[i] = v_inner_boundary
-        self.iterations_mean_optical_depth[i, -num_active_shells:] = tau_integ[
+        self.iterations_electron_densities[i, -num_active_shells:] = electron_densities.values[
             -num_active_shells:
         ]
+        self.iterations_t_inner[i] = t_inner
+        self.iterations_v_inner_boundary[i] = v_inner_boundary
+        self.iterations_mean_optical_depth[i, -num_active_shells:] = tau_integ[-num_active_shells:]
 
     def reshape_store_plasma_state(self, executed_iterations):
         """Reshapes the storage arrays in case convergence was reached before
@@ -130,16 +131,12 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         executed_iterations : int
             iteration index, i.e. number of iterations executed minus one!
         """
-        self.iterations_t_rad = self.iterations_t_rad[
-            : executed_iterations + 1, :
-        ]
+        self.iterations_t_rad = self.iterations_t_rad[: executed_iterations + 1, :]
         self.iterations_w = self.iterations_w[: executed_iterations + 1, :]
         self.iterations_electron_densities = self.iterations_electron_densities[
             : executed_iterations + 1, :
         ]
-        self.iterations_t_inner = self.iterations_t_inner[
-            : executed_iterations + 1
-        ]
+        self.iterations_t_inner = self.iterations_t_inner[: executed_iterations + 1]
         self.iterations_v_inner_boundary = self.iterations_v_inner_boundary[
             : executed_iterations + 1
         ]
@@ -164,9 +161,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         )
 
         interpolator = interp1d(
-            self.tau_integ[
-                self.simulation_state.geometry.v_inner_boundary_index :
-            ],
+            self.tau_integ[self.simulation_state.geometry.v_inner_boundary_index :],
             self.simulation_state.geometry.v_inner_active,  # Only use the active values as we only need a numerical estimate, not an index
             fill_value="extrapolate",
         )
@@ -180,17 +175,13 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             )
         elif estimated_v_inner > self.simulation_state.geometry.v_inner[-1]:
             estimated_v_inner = self.simulation_state.geometry.v_inner[-1]
-            logger.warning(
-                "WARNING: v_inner_boundary outside of simulation, setting to last shell"
-            )
+            logger.warning("WARNING: v_inner_boundary outside of simulation, setting to last shell")
 
         return estimated_v_inner
 
     @property
     def property_mask(self):
-        mask = np.zeros(
-            (len(self.simulation_state.geometry.r_inner)), dtype=bool
-        )
+        mask = np.zeros((len(self.simulation_state.geometry.r_inner)), dtype=bool)
         mask[
             self.simulation_state.geometry.v_inner_boundary_index : self.simulation_state.geometry.v_outer_boundary_index
         ] = True
@@ -210,9 +201,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
 
         estimated_v_inner = self.estimate_v_inner()
 
-        estimates[0].update(
-            {"v_inner_boundary": estimated_v_inner, "mask": self.property_mask}
-        )
+        estimates[0].update({"v_inner_boundary": estimated_v_inner, "mask": self.property_mask})
 
         return estimates
 
@@ -294,9 +283,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
                 no_of_shells = 1
 
             convergence_statuses.append(
-                solver.get_convergence_status(
-                    current_value, estimated_value, no_of_shells
-                )
+                solver.get_convergence_status(current_value, estimated_value, no_of_shells)
             )
 
         if np.all(convergence_statuses):
@@ -327,12 +314,8 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             The next values assigned to the simulation state
         """
         next_values = super().solve_simulation_state(estimated_values)
-        self.simulation_state.geometry.v_inner_boundary = next_values[
-            "v_inner_boundary"
-        ]
-        self.simulation_state.blackbody_packet_source.radius = (
-            self.simulation_state.r_inner[0]
-        )
+        self.simulation_state.geometry.v_inner_boundary = next_values["v_inner_boundary"]
+        self.simulation_state.blackbody_packet_source.radius = self.simulation_state.r_inner[0]
 
         return next_values
 
@@ -359,38 +342,25 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             temperature=self.simulation_state.radiation_field_state.temperature,
             dilution_factor=self.simulation_state.radiation_field_state.dilution_factor,
         )
-        update_properties = dict(
-            dilute_planckian_radiation_field=radiation_field
-        )
+        update_properties = dict(dilute_planckian_radiation_field=radiation_field)
         # A check to see if the plasma is set with JBluesDetailed, in which
         # case it needs some extra kwargs.
-        if (
-            self.plasma_solver.plasma_solver_settings.RADIATIVE_RATES_TYPE
-            == "blackbody"
-        ):
-            planckian_radiation_field = (
-                radiation_field.to_planckian_radiation_field()
-            )
+        if self.plasma_solver.plasma_solver_settings.RADIATIVE_RATES_TYPE == "blackbody":
+            planckian_radiation_field = radiation_field.to_planckian_radiation_field()
             j_blues = planckian_radiation_field.calculate_mean_intensity(
                 self.plasma_solver.atomic_data.lines.nu.values
             )
             update_properties["j_blues"] = pd.DataFrame(
                 j_blues, index=self.plasma_solver.atomic_data.lines.index
             )
-        elif (
-            self.plasma_solver.plasma_solver_settings.RADIATIVE_RATES_TYPE
-            == "dilute-blackbody"
-        ):
+        elif self.plasma_solver.plasma_solver_settings.RADIATIVE_RATES_TYPE == "dilute-blackbody":
             j_blues = radiation_field.calculate_mean_intensity(
                 self.plasma_solver.atomic_data.lines.nu.values
             )
             update_properties["j_blues"] = pd.DataFrame(
                 j_blues, index=self.plasma_solver.atomic_data.lines.index
             )
-        elif (
-            self.plasma_solver.plasma_solver_settings.RADIATIVE_RATES_TYPE
-            == "detailed"
-        ):
+        elif self.plasma_solver.plasma_solver_settings.RADIATIVE_RATES_TYPE == "detailed":
             j_blues = radiation_field.calculate_mean_intensity(
                 self.plasma_solver.atomic_data.lines.nu.values
             )
@@ -454,9 +424,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         if self.converged:
             logger.info("\n\tStarting final iteration")
         else:
-            logger.error(
-                "\n\tITERATIONS HAVE NOT CONVERGED, starting final iteration"
-            )
+            logger.error("\n\tITERATIONS HAVE NOT CONVERGED, starting final iteration")
         self.opacity_states = self.solve_opacity()
         virtual_packet_energies = self.solve_montecarlo(
             self.opacity_states,
@@ -478,9 +446,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             self.reshape_store_plasma_state(self.completed_iterations)
 
         # Keep final integrated tau always for diagnostic purposes
-        self.final_integrated_tau = self.tau_integ[
-            -self.simulation_state.no_of_shells :
-        ]
+        self.final_integrated_tau = self.tau_integ[-self.simulation_state.no_of_shells :]
 
         self.initialize_spectrum_solver(
             self.opacity_states,
