@@ -29,14 +29,16 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         mean_optical_depth="rosseland",
         tau=None,
         csvy=False,
-        zero_Ca_density=None,
+        zero_Ca_density=False,
         move_Ca_mass_fraction_to_atomic_number=None,
+        zero_IME_mass_fraction=False,
     ):
         super().__init__(
             configuration,
             csvy=csvy,
             zero_Ca_density=zero_Ca_density,
             move_Ca_mass_fraction_to_atomic_number=move_Ca_mass_fraction_to_atomic_number,
+            zero_IME_mass_fraction=zero_IME_mass_fraction,
         )
         self.mean_optical_depth = mean_optical_depth.lower()
 

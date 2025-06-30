@@ -37,6 +37,7 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         csvy=False,
         zero_Ca_density=None,
         move_Ca_mass_fraction_to_atomic_number=None,
+        zero_IME_mass_fraction=False,
     ):
         """A simple TARDIS workflow that runs a simulation to convergence
 
@@ -73,12 +74,31 @@ class SimpleTARDISWorkflow(WorkflowLogging):
                 self.simulation_state.density.to(u.g / u.cm**3).value * (t_exp / t0) ** 3
             )
             index_of_zero_Ca = np.argmin(np.abs(density_at_t0 - zero_Ca_density))
-            Ca_index_in_row = (
-                self.simulation_state.composition.elemental_mass_fraction.index.get_loc(20)
-            )
-            Ca_mass_fraction = self.simulation_state.composition.elemental_mass_fraction.loc[
-                20, index_of_zero_Ca:
-            ].values
+            if zero_IME_mass_fraction == True:
+                # set all IME mass fractions to zero
+                IME_Z_s = [12, 14, 16, 20]
+                element_to_be_zerod_index_in_row = [
+                    self.simulation_state.composition.elemental_mass_fraction.index.get_loc(Z)
+                    for Z in IME_Z_s
+                ]
+                to_be_arranged_mass_fraction = (
+                    self.simulation_state.composition.elemental_mass_fraction.iloc[
+                        element_to_be_zerod_index_in_row, index_of_zero_Ca:
+                    ]
+                    .sum(axis=0)
+                    .values
+                )
+            else:
+                element_to_be_zerod_index_in_row = [
+                    self.simulation_state.composition.elemental_mass_fraction.index.get_loc(20)
+                ]
+                to_be_arranged_mass_fraction = (
+                    self.simulation_state.composition.elemental_mass_fraction.iloc[
+                        element_to_be_zerod_index_in_row, index_of_zero_Ca:
+                    ]
+                    .sum(axis=0)
+                    .values
+                )
             self.zero_Ca_density = zero_Ca_density
             self.zero_Ca_velocity = self.simulation_state.v_inner.to(u.km / u.s).value[
                 index_of_zero_Ca
@@ -86,11 +106,11 @@ class SimpleTARDISWorkflow(WorkflowLogging):
             if move_Ca_mass_fraction_to_atomic_number is None:
                 self.simulation_state.composition.nuclide_mass_fraction.iloc[
                     :, index_of_zero_Ca:
-                ] += Ca_mass_fraction / (
+                ] += to_be_arranged_mass_fraction / (
                     self.simulation_state.composition.nuclide_mass_fraction.shape[0] - 1
                 )
                 self.simulation_state.composition.nuclide_mass_fraction.iloc[
-                    Ca_index_in_row, index_of_zero_Ca:
+                    element_to_be_zerod_index_in_row, index_of_zero_Ca:
                 ] = 0.0
             else:
                 if (
@@ -107,9 +127,9 @@ class SimpleTARDISWorkflow(WorkflowLogging):
                 )
                 self.simulation_state.composition.nuclide_mass_fraction.iloc[
                     replace_element_index_in_row, index_of_zero_Ca:
-                ] += Ca_mass_fraction
+                ] += to_be_arranged_mass_fraction
                 self.simulation_state.composition.nuclide_mass_fraction.iloc[
-                    Ca_index_in_row, index_of_zero_Ca:
+                    element_to_be_zerod_index_in_row, index_of_zero_Ca:
                 ] = 0.0
 
         plasma_solver_factory = PlasmaSolverFactory(
