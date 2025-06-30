@@ -32,7 +32,7 @@ class SimpleTARDISWorkflow(WorkflowLogging):
     log_level = None
     specific_log_level = None
 
-    def __init__(self, configuration, zero_Ca_starting_rho = None):
+    def __init__(self, configuration, zero_Ca_starting_rho = None, move_Ca_mass_fraction_to_atomic_number=8):
         super().__init__(configuration, self.log_level, self.specific_log_level)
         atom_data = parse_atom_data(configuration)
 
@@ -63,11 +63,29 @@ class SimpleTARDISWorkflow(WorkflowLogging):
                 Ca_mass_fraction = self.simulation_state.composition.elemental_mass_fraction.loc[
                     20, random_sampled_index:
                 ].values
-                self.simulation_state.composition.nuclide_mass_fraction.iloc[
-                    :, random_sampled_index:
-                ] += Ca_mass_fraction / (
-                    self.simulation_state.composition.nuclide_mass_fraction.shape[0] - 1
-                )
+                if move_Ca_mass_fraction_to_atomic_number is None:
+                    self.simulation_state.composition.nuclide_mass_fraction.iloc[
+                        :, random_sampled_index:
+                    ] += Ca_mass_fraction / (
+                        self.simulation_state.composition.nuclide_mass_fraction.shape[0] - 1
+                    )
+                else:
+                    if (
+                        move_Ca_mass_fraction_to_atomic_number
+                        not in self.simulation_state.composition.nuclide_mass_fraction.index
+                    ):
+                        raise ValueError(
+                            f"Atomic number {move_Ca_mass_fraction_to_atomic_number} not found in nuclide mass fraction index."
+                        )
+                    self.move_Ca_mass_fraction_to_atomic_number = move_Ca_mass_fraction_to_atomic_number
+                    replace_element_index_in_row = (
+                        self.simulation_state.composition.elemental_mass_fraction.index.get_loc(
+                            move_Ca_mass_fraction_to_atomic_number
+                        )
+                    )
+                    self.simulation_state.composition.nuclide_mass_fraction.iloc[
+                        replace_element_index_in_row, random_sampled_index:
+                    ] += Ca_mass_fraction
                 self.simulation_state.composition.nuclide_mass_fraction.iloc[
                     Ca_index_in_row, random_sampled_index:
                 ] = 0.0
