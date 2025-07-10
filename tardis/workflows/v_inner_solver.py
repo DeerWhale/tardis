@@ -30,6 +30,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         tau=None,
         csvy=False,
         zero_Ca_density=False,
+        zero_Ca_velocity=False,
         move_Ca_mass_fraction_to_atomic_number=None,
         zero_IME_mass_fraction=False,
     ):
@@ -37,6 +38,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             configuration,
             csvy=csvy,
             zero_Ca_density=zero_Ca_density,
+            zero_Ca_velocity =zero_Ca_velocity,
             move_Ca_mass_fraction_to_atomic_number=move_Ca_mass_fraction_to_atomic_number,
             zero_IME_mass_fraction=zero_IME_mass_fraction,
         )
