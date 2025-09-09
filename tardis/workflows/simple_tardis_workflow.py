@@ -37,6 +37,7 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         csvy=False,
         zero_Ca_density=None,
         zero_Ca_velocity=None,
+        pure_C_velocity=None,
         move_Ca_mass_fraction_to_atomic_number=None,
         zero_IME_mass_fraction=False,
     ):
@@ -80,7 +81,9 @@ class SimpleTARDISWorkflow(WorkflowLogging):
                 * (t_exp / t0) ** 3
             )
             if zero_Ca_density is not None:
-                index_of_zero_Ca = np.argmin(np.abs(density_at_t0 - zero_Ca_density))
+                index_of_zero_Ca = np.argmin(
+                    np.abs(density_at_t0 - zero_Ca_density)
+                )
                 self.zero_Ca_density = zero_Ca_density
                 self.zero_Ca_velocity = self.simulation_state.v_inner.to(
                     u.km / u.s
@@ -129,7 +132,10 @@ class SimpleTARDISWorkflow(WorkflowLogging):
                 self.simulation_state.composition.nuclide_mass_fraction.iloc[
                     :, index_of_zero_Ca:
                 ] += to_be_arranged_mass_fraction / (
-                    self.simulation_state.composition.nuclide_mass_fraction.shape[0] - 1
+                    self.simulation_state.composition.nuclide_mass_fraction.shape[
+                        0
+                    ]
+                    - 1
                 )
                 self.simulation_state.composition.nuclide_mass_fraction.iloc[
                     element_to_be_zerod_index_in_row, index_of_zero_Ca:
@@ -151,6 +157,45 @@ class SimpleTARDISWorkflow(WorkflowLogging):
                 self.simulation_state.composition.nuclide_mass_fraction.iloc[
                     element_to_be_zerod_index_in_row, index_of_zero_Ca:
                 ] = 0.0
+
+            ##### replace outer layers with pure C
+            if pure_C_velocity is not None:
+                self.pure_C_velocity = pure_C_velocity
+                index_of_pure_C = np.argmin(
+                    np.abs(
+                        self.simulation_state.v_inner.to(u.km / u.s).value
+                        - self.pure_C_velocity
+                    )
+                )
+                C_Z = 6
+                C_index_in_row = self.simulation_state.composition.elemental_mass_fraction.index.get_loc(
+                    C_Z
+                )
+                original_C_mass_fraction = self.simulation_state.composition.elemental_mass_fraction.loc[
+                    C_Z
+                ].values[0]
+                additional_C_mass_fraction = (
+                    np.linspace(
+                        original_C_mass_fraction,
+                        1,
+                        self.simulation_state.composition.nuclide_mass_fraction.shape[
+                            1
+                        ]
+                        - index_of_pure_C,
+                    )
+                    - original_C_mass_fraction
+                )
+                self.simulation_state.composition.nuclide_mass_fraction.iloc[
+                    :, index_of_pure_C:
+                ] -= additional_C_mass_fraction / (
+                    self.simulation_state.composition.nuclide_mass_fraction.shape[
+                        0
+                    ]
+                    - 1
+                )
+                self.simulation_state.composition.nuclide_mass_fraction.iloc[
+                    C_index_in_row, index_of_pure_C:
+                ] += additional_C_mass_fraction
 
         plasma_solver_factory = PlasmaSolverFactory(
             atom_data,
@@ -190,8 +235,10 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         )
 
         # Luminosity filter frequencies
-        self.luminosity_nu_start = configuration.supernova.luminosity_wavelength_end.to(
-            u.Hz, u.spectral()
+        self.luminosity_nu_start = (
+            configuration.supernova.luminosity_wavelength_end.to(
+                u.Hz, u.spectral()
+            )
         )
 
         if u.isclose(
@@ -208,14 +255,21 @@ class SimpleTARDISWorkflow(WorkflowLogging):
 
         self.real_packet_count = int(configuration.montecarlo.no_of_packets)
 
-        final_iteration_packet_count = configuration.montecarlo.last_no_of_packets
+        final_iteration_packet_count = (
+            configuration.montecarlo.last_no_of_packets
+        )
 
-        if final_iteration_packet_count is None or final_iteration_packet_count < 0:
+        if (
+            final_iteration_packet_count is None
+            or final_iteration_packet_count < 0
+        ):
             final_iteration_packet_count = self.real_packet_count
 
         self.final_iteration_packet_count = int(final_iteration_packet_count)
 
-        self.virtual_packet_count = int(configuration.montecarlo.no_of_virtual_packets)
+        self.virtual_packet_count = int(
+            configuration.montecarlo.no_of_virtual_packets
+        )
 
         # spectrum settings
         self.integrated_spectrum_settings = configuration.spectrum.integrated
@@ -225,10 +279,14 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         self.consecutive_converges_count = 0
         self.converged = False
         self.completed_iterations = 0
-        self.luminosity_requested = configuration.supernova.luminosity_requested.cgs
+        self.luminosity_requested = (
+            configuration.supernova.luminosity_requested.cgs
+        )
 
         # Convergence solvers
-        self.convergence_strategy = configuration.montecarlo.convergence_strategy
+        self.convergence_strategy = (
+            configuration.montecarlo.convergence_strategy
+        )
 
         self.convergence_solvers = {}
         self.convergence_solvers["t_radiative"] = ConvergenceSolver(
@@ -271,11 +329,14 @@ class SimpleTARDISWorkflow(WorkflowLogging):
             self.luminosity_nu_end,
         )
 
-        luminosity_ratios = (emitted_luminosity / self.luminosity_requested).to(1).value
+        luminosity_ratios = (
+            (emitted_luminosity / self.luminosity_requested).to(1).value
+        )
 
         estimated_t_inner = (
             self.simulation_state.t_inner
-            * luminosity_ratios**self.convergence_strategy.t_inner_update_exponent
+            * luminosity_ratios
+            ** self.convergence_strategy.t_inner_update_exponent
         )
 
         return {
@@ -305,7 +366,9 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         for key, solver in self.convergence_solvers.items():
             current_value = getattr(self.simulation_state, key)
             estimated_value = estimated_values[key]
-            no_of_shells = self.simulation_state.no_of_shells if key != "t_inner" else 1
+            no_of_shells = (
+                self.simulation_state.no_of_shells if key != "t_inner" else 1
+            )
             convergence_statuses.append(
                 solver.get_convergence_status(
                     current_value, estimated_value, no_of_shells
@@ -376,14 +439,18 @@ class SimpleTARDISWorkflow(WorkflowLogging):
             temperature=self.simulation_state.t_radiative,
             dilution_factor=self.simulation_state.dilution_factor,
         )
-        update_properties = dict(dilute_planckian_radiation_field=radiation_field)
+        update_properties = dict(
+            dilute_planckian_radiation_field=radiation_field
+        )
         # A check to see if the plasma is set with JBluesDetailed, in which
         # case it needs some extra kwargs.
         if (
             self.plasma_solver.plasma_solver_settings.RADIATIVE_RATES_TYPE
             == "blackbody"
         ):
-            planckian_radiation_field = radiation_field.to_planckian_radiation_field()
+            planckian_radiation_field = (
+                radiation_field.to_planckian_radiation_field()
+            )
             j_blues = planckian_radiation_field.calculate_mean_intensity(
                 self.plasma_solver.atomic_data.lines.nu.values
             )
@@ -401,7 +468,8 @@ class SimpleTARDISWorkflow(WorkflowLogging):
                 j_blues, index=self.plasma_solver.atomic_data.lines.index
             )
         elif (
-            self.plasma_solver.plasma_solver_settings.RADIATIVE_RATES_TYPE == "detailed"
+            self.plasma_solver.plasma_solver_settings.RADIATIVE_RATES_TYPE
+            == "detailed"
         ):
             update_properties["j_blues"] = pd.DataFrame(
                 estimated_radfield_properties.j_blues,
@@ -512,7 +580,9 @@ class SimpleTARDISWorkflow(WorkflowLogging):
 
         if self.integrated_spectrum_settings is not None:
             # Set up spectrum solver integrator
-            self.spectrum_solver.integrator_settings = self.integrated_spectrum_settings
+            self.spectrum_solver.integrator_settings = (
+                self.integrated_spectrum_settings
+            )
             self.spectrum_solver._integrator = FormalIntegrator(
                 self.simulation_state,
                 self.plasma_solver,
@@ -553,7 +623,9 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         if self.converged:
             logger.info("\n\tStarting final iteration")
         else:
-            logger.error("\n\tITERATIONS HAVE NOT CONVERGED, starting final iteration")
+            logger.error(
+                "\n\tITERATIONS HAVE NOT CONVERGED, starting final iteration"
+            )
         virtual_packet_energies = self.solve_montecarlo(
             opacity_states,
             self.final_iteration_packet_count,
