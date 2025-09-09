@@ -32,7 +32,7 @@ class SimpleTARDISWorkflow(WorkflowLogging):
     log_level = None
     specific_log_level = None
 
-    def __init__(self, configuration, zero_Ca_starting_rho = None, move_Ca_mass_fraction_to_atomic_number=8):
+    def __init__(self, configuration, zero_Ca_velocity_kms=None, zero_Ca_starting_rho = None, move_Ca_mass_fraction_to_atomic_number=8, zero_IME_mass_fraction = True):
         super().__init__(configuration, self.log_level, self.specific_log_level)
         atom_data = parse_atom_data(configuration)
 
@@ -40,57 +40,83 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         self.simulation_state = parse_simulation_state(
             configuration, None, False, {}, atom_data
         )
-        if zero_Ca_starting_rho is not None:
-            # randomly pick a shell above this density value
+        if (zero_Ca_starting_rho is not None) or (zero_Ca_velocity_kms is not None):
             t_exp = configuration.supernova.time_explosion.to(u.day).value
             t0 = configuration.model.structure.density.time_0.to(u.day).value
             density_at_t0 = self.simulation_state.density.to(u.g/u.cm**3).value*(t_exp/t0)**3
-            index_of_starting_rho = np.where(
-                density_at_t0 <= zero_Ca_starting_rho
-            )[0][0]
-            random_sampled_index = np.random.randint(
-                index_of_starting_rho, len(self.simulation_state.density)+1
-            )
-            if random_sampled_index == len(self.simulation_state.density):
-                self.zero_Ca_density = -999
-                self.zero_Ca_velocity = -999
-            else:
-                zero_Ca_density = density_at_t0[random_sampled_index]
-                # zero out the density of Ca in the outer layers
-                Ca_index_in_row = (
-                    self.simulation_state.composition.elemental_mass_fraction.index.get_loc(20)
+            if zero_Ca_starting_rho is not None:
+                # randomly pick a shell above this density value
+                index_of_starting_rho = np.where(
+                    density_at_t0 <= zero_Ca_starting_rho
+                )[0][0]
+                index_of_zero_Ca = np.random.randint(
+                    index_of_starting_rho, len(self.simulation_state.density)+1
                 )
-                Ca_mass_fraction = self.simulation_state.composition.elemental_mass_fraction.loc[
-                    20, random_sampled_index:
-                ].values
-                if move_Ca_mass_fraction_to_atomic_number is None:
-                    self.simulation_state.composition.nuclide_mass_fraction.iloc[
-                        :, random_sampled_index:
-                    ] += Ca_mass_fraction / (
-                        self.simulation_state.composition.nuclide_mass_fraction.shape[0] - 1
-                    )
-                else:
-                    if (
-                        move_Ca_mass_fraction_to_atomic_number
-                        not in self.simulation_state.composition.nuclide_mass_fraction.index
-                    ):
-                        raise ValueError(
-                            f"Atomic number {move_Ca_mass_fraction_to_atomic_number} not found in nuclide mass fraction index."
-                        )
-                    self.move_Ca_mass_fraction_to_atomic_number = move_Ca_mass_fraction_to_atomic_number
-                    replace_element_index_in_row = (
-                        self.simulation_state.composition.elemental_mass_fraction.index.get_loc(
-                            move_Ca_mass_fraction_to_atomic_number
-                        )
-                    )
-                    self.simulation_state.composition.nuclide_mass_fraction.iloc[
-                        replace_element_index_in_row, random_sampled_index:
-                    ] += Ca_mass_fraction
+                if index_of_zero_Ca == len(self.simulation_state.density):
+                    self.zero_Ca_density = -999
+                    self.zero_Ca_velocity = -999
+            else:
+                index_of_zero_Ca = np.argmin(np.abs(
+                    self.simulation_state.v_inner.to(u.km/u.s).value - zero_Ca_velocity_kms
+                ))
+            print(f"Zeroing out Ca density at shell {index_of_zero_Ca} with velocity {self.simulation_state.v_inner.to(u.km/u.s).value[index_of_zero_Ca]} km/s and density {density_at_t0[index_of_zero_Ca]} g/cm^3")
+            # zero out the density of Ca in the outer layers
+            # and move the mass fraction to
+            zero_Ca_density = density_at_t0[index_of_zero_Ca]
+            if zero_IME_mass_fraction == True:
+                # set all IME mass fractions to zero
+                IME_Z_s = [12, 14, 16, 20]
+                element_to_be_zerod_index_in_row = [
+                    self.simulation_state.composition.elemental_mass_fraction.index.get_loc(Z)
+                    for Z in IME_Z_s
+                ]
+                to_be_arranged_mass_fraction = (
+                    self.simulation_state.composition.elemental_mass_fraction.iloc[
+                        element_to_be_zerod_index_in_row, index_of_zero_Ca:
+                    ]
+                    .sum(axis=0)
+                    .values
+                )
+            else:
+                # zero out the density of Ca in the outer layers
+                element_to_be_zerod_index_in_row = [
+                    self.simulation_state.composition.elemental_mass_fraction.index.get_loc(20)
+                ]
+                to_be_arranged_mass_fraction = (
+                    self.simulation_state.composition.elemental_mass_fraction.iloc[
+                        element_to_be_zerod_index_in_row, index_of_zero_Ca:
+                    ]
+                    .sum(axis=0)
+                    .values
+                )
+            if move_Ca_mass_fraction_to_atomic_number is None:
                 self.simulation_state.composition.nuclide_mass_fraction.iloc[
-                    Ca_index_in_row, random_sampled_index:
-                ] = 0.0
-                self.zero_Ca_density = zero_Ca_density
-                self.zero_Ca_velocity = self.simulation_state.v_inner.to(u.km/u.s).value[random_sampled_index]
+                    :, index_of_zero_Ca:
+                ] += to_be_arranged_mass_fraction / (
+                    self.simulation_state.composition.nuclide_mass_fraction.shape[0] - 1
+                )
+            else:
+                if (
+                    move_Ca_mass_fraction_to_atomic_number
+                    not in self.simulation_state.composition.nuclide_mass_fraction.index
+                ):
+                    raise ValueError(
+                        f"Atomic number {move_Ca_mass_fraction_to_atomic_number} not found in nuclide mass fraction index."
+                    )
+                self.move_Ca_mass_fraction_to_atomic_number = move_Ca_mass_fraction_to_atomic_number
+                replace_element_index_in_row = (
+                    self.simulation_state.composition.elemental_mass_fraction.index.get_loc(
+                        move_Ca_mass_fraction_to_atomic_number
+                    )
+                )
+                self.simulation_state.composition.nuclide_mass_fraction.iloc[
+                    replace_element_index_in_row, index_of_zero_Ca:
+                ] += to_be_arranged_mass_fraction
+            self.simulation_state.composition.nuclide_mass_fraction.iloc[
+                element_to_be_zerod_index_in_row, index_of_zero_Ca:
+            ] = 0.0
+            self.zero_Ca_density = zero_Ca_density
+            self.zero_Ca_velocity = self.simulation_state.v_inner.to(u.km/u.s).value[index_of_zero_Ca]
         else:
             self.zero_Ca_density = -999
             self.zero_Ca_velocity = -999
