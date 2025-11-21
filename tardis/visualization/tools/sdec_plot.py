@@ -16,6 +16,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from astropy.modeling.models import BlackBody
 
+from matplotlib.colors import ListedColormap, to_hex
+import colorsys
+
 from tardis.util.base import (
     atomic_number2element_symbol,
     element_symbol2atomic_number,
@@ -26,6 +29,40 @@ from tardis.util.base import (
 from tardis.visualization import plot_util as pu
 
 logger = logging.getLogger(__name__)
+
+
+def reorder_colors_function(cmap_name, ncolors):
+    # 1) Get n discrete colors from 'jet'
+    colormap = cm.get_cmap(cmap_name, ncolors)
+    base = [colormap(i)[:3] for i in range(colormap.N)]  # RGB triples
+
+    # 2) End-interleave order: 0, 20, 1, 19, 2, 18, ...
+    order = []
+    lo, hi = 0, len(base) - 1
+    while lo <= hi:
+        order.append(lo)
+        if lo != hi:
+            order.append(hi)
+        lo += 1
+        hi -= 1
+    reordered = [base[i] for i in order]
+
+    # 3) Optional: increase saturation for stronger separation (HSV scale factor)
+    def boost_saturation(rgb_list, s_scale=1.15):
+        out = []
+        for r, g, b in rgb_list:
+            h, s, v = colorsys.rgb_to_hsv(r, g, b)
+            s = max(0.0, min(1.0, s * s_scale))
+            out.append(colorsys.hsv_to_rgb(h, s, v))
+        return out
+
+    reordered_boosted = boost_saturation(reordered, s_scale=1.15)
+
+    # 4) Build a ListedColormap you can pass anywhere a cmap is accepted
+    colormap_reordered_boosted = ListedColormap(
+        reordered_boosted, name="jet21_reordered_boosted"
+    )
+    return colormap_reordered_boosted
 
 
 class SDECData:
@@ -675,6 +712,7 @@ class SDECPlotter:
             self.plot_wavelength = self.plot_wavelength[
                 self.packet_wvl_range_mask
             ]
+            self.plot_wavelength_micrometer = self.plot_wavelength.to(u.um)
             self.plot_frequency = self.plot_frequency[
                 self.packet_wvl_range_mask
             ]
@@ -1149,9 +1187,17 @@ class SDECPlotter:
         ax=None,
         figsize=(12, 7),
         cmapname="jet",
+        reorder_cmap=False,
+        replace_first_color=False,
+        unit_micro_meter=False,
+        cbar_labelsize=14,
+        labelfontsize=18,
+        labelsize=12,
         nelements=None,
         species_list=None,
         blackbody_photosphere=True,
+        log_yaxis=False,
+        embed_colorbar=False,
     ):
         """
         Generate Spectral element DEComposition (SDEC) Plot using matplotlib.
@@ -1229,23 +1275,54 @@ class SDECPlotter:
         # Get the labels in the color bar. This determines the number of unique colors
         self._make_colorbar_labels()
         # Set colormap to be used in elements of emission and absorption plots
-        self.cmap = plt.get_cmap(cmapname, len(self._species_name))
+        if reorder_cmap:
+            self.cmap = reorder_colors_function(
+                cmapname, len(self._species_name)
+            )
+        else:
+            self.cmap = plt.get_cmap(cmapname, len(self._species_name))
+
+        if replace_first_color:
+            # Get the colors from the colormap
+            colors = [self.cmap(i) for i in range(self.cmap.N)]
+            # Replace the first color with tab:pink
+            colors = [clr.to_rgba("tab:pink")] + colors
+            # Create a new colormap with the modified colors
+            self.cmap = clr.ListedColormap(colors)
+
         # Get the number of unqie colors
         self._make_colorbar_colors()
-        self._show_colorbar_mpl()
+        self._show_colorbar_mpl(
+            cbar_labelsize=cbar_labelsize, embed_colorbar=embed_colorbar
+        )
 
         # Plot emission and absorption components
-        self._plot_emission_mpl()
-        self._plot_absorption_mpl()
+        self._plot_emission_mpl(
+            log_yaxis=log_yaxis, unit_micro_meter=unit_micro_meter
+        )
+        self._plot_absorption_mpl(
+            log_yaxis=log_yaxis, unit_micro_meter=unit_micro_meter
+        )
+
+        if unit_micro_meter:
+            plot_wavelength = self.plot_wavelength_micrometer.value
+        else:
+            plot_wavelength = self.plot_wavelength.value
 
         # Plot modeled spectrum
+        if log_yaxis:
+            spec_model = np.log10(self.modeled_spectrum_luminosity.value)
+        else:
+            spec_model = self.modeled_spectrum_luminosity.value
         if show_modeled_spectrum:
             self.ax.plot(
-                self.plot_wavelength.value,
-                self.modeled_spectrum_luminosity.value,
-                "--b",
+                plot_wavelength,
+                spec_model,
+                color="tab:red",
+                ls="-",
+                alpha=0.6,
                 label=f"{packets_mode.capitalize()} Spectrum",
-                linewidth=1,
+                linewidth=2,
             )
 
         # Plot observed spectrum
@@ -1262,43 +1339,73 @@ class SDECPlotter:
             observed_spectrum_flux = None
 
             # Convert to wavelength and luminosity units
-            observed_spectrum_wavelength = observed_spectrum[0].to(u.AA)
-            observed_spectrum_flux = observed_spectrum[1].to("erg/(s cm**2 AA)")
+            if unit_micro_meter:
+                observed_spectrum_wavelength = observed_spectrum[0].to(u.um)
+            else:
+                observed_spectrum_wavelength = observed_spectrum[0].to(u.AA)
+            observed_spectrum_flux = (
+                observed_spectrum[1].to("erg/(s cm**2 AA)").value
+            )
+
+            if log_yaxis:
+                observed_spectrum_flux = np.log10(observed_spectrum_flux)
 
             self.ax.plot(
                 observed_spectrum_wavelength.value,
-                observed_spectrum_flux.value,
+                observed_spectrum_flux,
                 "-k",
                 label="Observed Spectrum",
                 linewidth=1,
             )
 
         # Plot photosphere
+        if log_yaxis:
+            spec_blackbody = np.log10(self.photosphere_luminosity.value)
+        else:
+            spec_blackbody = self.photosphere_luminosity.value
         if blackbody_photosphere:
             self.ax.plot(
-                self.plot_wavelength.value,
-                self.photosphere_luminosity.value,
+                plot_wavelength,
+                spec_blackbody,
                 "--r",
                 label="Blackbody Photosphere",
             )
 
         # Set legends and labels
-        self.ax.legend(fontsize=12)
-        self.ax.set_xlabel(r"Wavelength $[\mathrm{\AA}]$", fontsize=12)
+        self.ax.tick_params(labelsize=labelsize)
+        if embed_colorbar:
+            self.ax.legend(fontsize=12, loc="lower right")
+            self.ax.add_artist(self.cbar_legend)
+        else:
+            self.ax.legend(fontsize=12)
+        if unit_micro_meter:
+            self.ax.set_xlabel(
+                r"Wavelength $[\mathrm{\mu m}]$", fontsize=labelfontsize
+            )
+        else:
+            self.ax.set_xlabel(
+                r"Wavelength $[\mathrm{\AA}]$", fontsize=labelfontsize
+            )
+        if log_yaxis:
+            suffix = "log10 "
+        else:
+            suffix = ""
         if distance is not None:  # Set y-axis label for flux
             self.ax.set_ylabel(
-                r"$F_{\lambda}$ [erg $\mathrm{s^{-1}}$ $\mathrm{cm^{-2}}$ $\mathrm{\AA^{-1}}$]",
-                fontsize=12,
+                suffix
+                + r"$F_{\lambda}$ [erg $\mathrm{s^{-1}}$ $\mathrm{cm^{-2}}$ $\mathrm{\AA^{-1}}$]",
+                fontsize=labelfontsize,
             )
         else:  # Set y-axis label for luminosity
             self.ax.set_ylabel(
-                r"$L_{\lambda}$ [erg $\mathrm{s^{-1}}$ $\mathrm{\AA^{-1}}$]",
-                fontsize=12,
+                suffix
+                + r"$L_{\lambda}$ [erg $\mathrm{s^{-1}}$ $\mathrm{\AA^{-1}}$]",
+                fontsize=labelfontsize,
             )
 
         return plt.gca()
 
-    def _plot_emission_mpl(self):
+    def _plot_emission_mpl(self, log_yaxis=False, unit_micro_meter=False):
         """Plot emission part of the SDEC Plot using matplotlib."""
         # To create stacked area chart in matplotlib, we will start with zero
         # lower level and will keep adding luminosities to it (upper level)
@@ -1307,10 +1414,15 @@ class SDECPlotter:
             lower_level + self.emission_luminosities_df.noint.to_numpy()
         )
 
+        if unit_micro_meter:
+            plot_wavelength = self.plot_wavelength_micrometer.value
+        else:
+            plot_wavelength = self.plot_wavelength.value
+
         self.ax.fill_between(
-            self.plot_wavelength.value,
-            lower_level,
-            upper_level,
+            plot_wavelength,
+            lower_level if not log_yaxis else np.log10(lower_level + 1e-30),
+            upper_level if not log_yaxis else np.log10(upper_level),
             color="#4C4C4C",
             label="No interaction",
         )
@@ -1321,9 +1433,9 @@ class SDECPlotter:
         )
 
         self.ax.fill_between(
-            self.plot_wavelength.value,
-            lower_level,
-            upper_level,
+            plot_wavelength,
+            lower_level if not log_yaxis else np.log10(lower_level),
+            upper_level if not log_yaxis else np.log10(upper_level),
             color="#8F8F8F",
             label="Electron Scatter Only",
         )
@@ -1336,9 +1448,9 @@ class SDECPlotter:
             )
 
             self.ax.fill_between(
-                self.plot_wavelength.value,
-                lower_level,
-                upper_level,
+                plot_wavelength,
+                lower_level if not log_yaxis else np.log10(lower_level),
+                upper_level if not log_yaxis else np.log10(upper_level),
                 color="#C2C2C2",
                 label="Other elements",
             )
@@ -1353,9 +1465,9 @@ class SDECPlotter:
                 )
 
                 self.ax.fill_between(
-                    self.plot_wavelength.value,
-                    lower_level,
-                    upper_level,
+                    plot_wavelength,
+                    lower_level if not log_yaxis else np.log10(lower_level),
+                    upper_level if not log_yaxis else np.log10(upper_level),
                     color=self._color_list[species_counter],
                     cmap=self.cmap,
                     linewidth=0,
@@ -1380,7 +1492,7 @@ class SDECPlotter:
                     )
                     logger.info(info_msg)
 
-    def _plot_absorption_mpl(self):
+    def _plot_absorption_mpl(self, log_yaxis=False, unit_micro_meter=False):
         """Plot absorption part of the SDEC Plot using matplotlib."""
         lower_level = np.zeros(self.absorption_luminosities_df.shape[0])
 
@@ -1388,6 +1500,12 @@ class SDECPlotter:
         # zero upper level and keep subtracting luminosities to it (lower
         # level) - fill from upper to lower level
         # If the 'other' column exists then plot it as silver
+
+        if unit_micro_meter:
+            plot_wavelength = self.plot_wavelength_micrometer.value
+        else:
+            plot_wavelength = self.plot_wavelength.value
+
         if "other" in self.absorption_luminosities_df.keys():
             upper_level = lower_level
             lower_level = (
@@ -1395,9 +1513,9 @@ class SDECPlotter:
             )
 
             self.ax.fill_between(
-                self.plot_wavelength.value,
-                upper_level,
-                lower_level,
+                plot_wavelength,
+                upper_level if not log_yaxis else -np.log10(-upper_level),
+                lower_level if not log_yaxis else -np.log10(-lower_level),
                 color="silver",
             )
 
@@ -1410,9 +1528,9 @@ class SDECPlotter:
                 )
 
                 self.ax.fill_between(
-                    self.plot_wavelength.value,
-                    upper_level,
-                    lower_level,
+                    plot_wavelength,
+                    upper_level if not log_yaxis else -np.log10(-upper_level),
+                    lower_level if not log_yaxis else -np.log10(-lower_level),
                     color=self._color_list[species_counter],
                     cmap=self.cmap,
                     linewidth=0,
@@ -1438,23 +1556,48 @@ class SDECPlotter:
                     )
                     logger.info(info_msg)
 
-    def _show_colorbar_mpl(self):
+    def _show_colorbar_mpl(self, cbar_labelsize=14, embed_colorbar=False):
         """Show matplotlib colorbar with labels of elements mapped to colors."""
         color_values = [
             self.cmap(species_counter / len(self._species_name))
             for species_counter in range(len(self._species_name))
         ]
+        if embed_colorbar:
+            # Create legend entries for each species
+            legend_elements = []
+            for i, (color, species_name) in enumerate(
+                zip(color_values, self._species_name)
+            ):
+                legend_elements.append(
+                    plt.Rectangle(
+                        (0, 0), 1, 1, facecolor=color, label=species_name
+                    )
+                )
 
-        custcmap = clr.ListedColormap(color_values)
-        norm = clr.Normalize(vmin=0, vmax=len(self._species_name))
-        mappable = cm.ScalarMappable(norm=norm, cmap=custcmap)
-        mappable.set_array(np.linspace(1, len(self._species_name) + 1, 256))
-        cbar = plt.colorbar(mappable, ax=self.ax)
+            # Add legend to the axis
+            self.cbar_legend = self.ax.legend(
+                handles=legend_elements,
+                loc="upper right",
+                bbox_to_anchor=(0.78, 1.0),
+                fontsize=cbar_labelsize,
+                frameon=True,
+                fancybox=True,
+                ncol=4,
+                labelspacing=0.25,
+                columnspacing=0.25,
+            )
+        else:
+            custcmap = clr.ListedColormap(color_values)
+            norm = clr.Normalize(vmin=0, vmax=len(self._species_name))
+            mappable = cm.ScalarMappable(norm=norm, cmap=custcmap)
+            mappable.set_array(np.linspace(1, len(self._species_name) + 1, 256))
+            cbar = plt.colorbar(mappable, ax=self.ax, pad=0.02)
 
-        bounds = np.arange(len(self._species_name)) + 0.5
-        cbar.set_ticks(bounds)
+            bounds = np.arange(len(self._species_name)) + 0.5
+            cbar.set_ticks(bounds)
 
-        cbar.set_ticklabels(self._species_name)
+            cbar.set_ticklabels(self._species_name)
+            cbar.ax.tick_params(labelsize=cbar_labelsize)
 
     def _make_colorbar_labels(self):
         """Get the labels for the species in the colorbar."""
@@ -1549,6 +1692,8 @@ class SDECPlotter:
         fig=None,
         graph_height=600,
         cmapname="jet",
+        reorder_cmap=False,
+        replace_first_color=False,
         nelements=None,
         species_list=None,
         blackbody_photosphere=True,
@@ -1629,7 +1774,21 @@ class SDECPlotter:
         # Get the labels in the color bar. This determines the number of unique colors
         self._make_colorbar_labels()
         # Set colormap to be used in elements of emission and absorption plots
-        self.cmap = plt.get_cmap(cmapname, len(self._species_name))
+        if reorder_cmap:
+            self.cmap = reorder_colors_function(
+                cmapname, len(self._species_name)
+            )
+        else:
+            self.cmap = plt.get_cmap(cmapname, len(self._species_name))
+
+        if replace_first_color:
+            # Get the colors from the colormap
+            colors = [self.cmap(i) for i in range(self.cmap.N)]
+            # Replace the first color with tab:pink
+            colors = [clr.to_rgba("tab:pink")] + colors
+            # Create a new colormap with the modified colors
+            self.cmap = clr.ListedColormap(colors)
+
         # Get the number of unique colors
         self._make_colorbar_colors()
 
