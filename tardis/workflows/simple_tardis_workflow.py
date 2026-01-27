@@ -37,9 +37,11 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         csvy=False,
         zero_Ca_density=None,
         zero_Ca_velocity=None,
-        pure_C_velocity=None,
         move_Ca_mass_fraction_to_atomic_number=None,
         zero_IME_mass_fraction=False,
+        pure_C_velocity=None,
+        stratification_composition=None,
+        average_abundance=False,
     ):
         """A simple TARDIS workflow that runs a simulation to convergence
 
@@ -49,6 +51,24 @@ class SimpleTARDISWorkflow(WorkflowLogging):
             Configuration object for the simulation
         csvy : bool, optional
             Set true if the configuration uses CSVY, by default False
+        zero_Ca_density : float, optional
+            If set, the density (in g/cm^3) above which Calcium mass fraction is set to zero, by default None
+        zero_Ca_velocity : float, optional
+            If set, the velocity (in km/s) above which Calcium mass fraction is set to zero, by default None
+        move_Ca_mass_fraction_to_atomic_number : int, optional
+            If set, the atomic number to which the removed Calcium mass fraction is moved to, by default it is moved to Oxygen
+        zero_IME_mass_fraction : bool, optional
+            If true, set all IME (Z=12,14,16,20) mass fractions to zero instead of just Calcium, by default False
+        pure_C_velocity : float, optional
+            If set, the velocity (in km/s) above which the composition is set to pure Carbon, by default None
+        stratification_composition : dict, optional
+            A dictionary specifying which element to set to have linearly varying abundance from v_start to v_stop
+            such as {"atomic_number": 6, "ratio_at_v_end": 2.0} would mean that the abundance of Carbon (Z=6) would vary linearly
+            from its original value at v_start to 2 times its original value at v_stop, by default None
+            (this was added to testing uniform vs stratified abundance profiles during review stage)
+        average_abundance : bool, optional
+            If true, average the abundance of each element across all shell weighted by density, by default False
+            (this was added to testing uniform vs stratified abundance profiles during review stage)
         """
         super().__init__(configuration, self.log_level, self.specific_log_level)
         atom_data = parse_atom_data(configuration)
@@ -196,6 +216,72 @@ class SimpleTARDISWorkflow(WorkflowLogging):
                 self.simulation_state.composition.nuclide_mass_fraction.iloc[
                     C_index_in_row, index_of_pure_C:
                 ] += additional_C_mass_fraction
+
+            ### additional stratification of element
+            if stratification_composition is not None:
+                og_shell_total_mass_fractions = (
+                    self.simulation_state.composition.nuclide_mass_fraction.sum(
+                        axis=0
+                    )
+                )
+                Z_to_stratify = stratification_composition["atomic_number"]
+                ratio_at_v_end = stratification_composition["ratio_at_v_end"]
+                N_elements = self.simulation_state.composition.nuclide_mass_fraction.shape[
+                    0
+                ]
+                original_Z_mass_fraction = (
+                    self.simulation_state.composition.nuclide_mass_fraction.loc[
+                        Z_to_stratify
+                    ].values
+                )
+                target_Z_mass_fraction = np.linspace(
+                    original_Z_mass_fraction[0],
+                    original_Z_mass_fraction[0] * ratio_at_v_end,
+                    len(original_Z_mass_fraction),
+                )
+                target_Z_mass_fraction = np.clip(
+                    target_Z_mass_fraction, 0, 1
+                )  # cap the mass fraction to be between 0 and 1
+                difference_in_Z_mass_fraction = (
+                    target_Z_mass_fraction - original_Z_mass_fraction
+                )
+                self.simulation_state.composition.nuclide_mass_fraction -= (
+                    difference_in_Z_mass_fraction / (N_elements - 1)
+                )
+                self.simulation_state.composition.nuclide_mass_fraction.loc[
+                    Z_to_stratify, :
+                ] = target_Z_mass_fraction
+
+                np.testing.assert_allclose(
+                    self.simulation_state.composition.nuclide_mass_fraction.sum(
+                        axis=0
+                    ),
+                    og_shell_total_mass_fractions,
+                )
+
+        if average_abundance:
+            # average the abundance of each element across all shell weighted by density
+            density = self.simulation_state.density.to(u.g / u.cm**3).value
+            for i in range(
+                self.simulation_state.composition.nuclide_mass_fraction.shape[0]
+            ):
+                self.simulation_state.composition.nuclide_mass_fraction.iloc[
+                    i, :
+                ] = np.average(
+                    self.simulation_state.composition.nuclide_mass_fraction.iloc[
+                        i, :
+                    ],
+                    weights=density,
+                )
+            # normalized to sum to 1 in each shell
+            self.simulation_state.composition.nuclide_mass_fraction = (
+                self.simulation_state.composition.nuclide_mass_fraction.div(
+                    self.simulation_state.composition.nuclide_mass_fraction.sum(
+                        axis=0
+                    ),
+                    axis=1,
+                )
+            )
 
         plasma_solver_factory = PlasmaSolverFactory(
             atom_data,
@@ -626,6 +712,9 @@ class SimpleTARDISWorkflow(WorkflowLogging):
             logger.error(
                 "\n\tITERATIONS HAVE NOT CONVERGED, starting final iteration"
             )
+        if self.total_iterations == 1:
+            opacity_states = self.solve_opacity()
+
         virtual_packet_energies = self.solve_montecarlo(
             opacity_states,
             self.final_iteration_packet_count,
