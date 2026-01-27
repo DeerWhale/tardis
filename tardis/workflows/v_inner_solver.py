@@ -32,6 +32,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         zero_Ca_density=False,
         zero_Ca_velocity=False,
         pure_C_velocity=None,
+        stratification_composition=None,
         move_Ca_mass_fraction_to_atomic_number=None,
         zero_IME_mass_fraction=False,
     ):
@@ -41,6 +42,7 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             zero_Ca_density=zero_Ca_density,
             zero_Ca_velocity=zero_Ca_velocity,
             pure_C_velocity=pure_C_velocity,
+            stratification_composition=stratification_composition,
             move_Ca_mass_fraction_to_atomic_number=move_Ca_mass_fraction_to_atomic_number,
             zero_IME_mass_fraction=zero_IME_mass_fraction,
         )
