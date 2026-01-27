@@ -1184,6 +1184,7 @@ class SDECPlotter:
         distance=None,
         observed_spectrum=None,
         show_modeled_spectrum=True,
+        show_colorbar = True,
         ax=None,
         figsize=(12, 7),
         cmapname="jet",
@@ -1275,26 +1276,36 @@ class SDECPlotter:
         # Get the labels in the color bar. This determines the number of unique colors
         self._make_colorbar_labels()
         # Set colormap to be used in elements of emission and absorption plots
+        num_colors = len(self._species_name)
+        if replace_first_color == "match_last_pink":
+            num_colors += 1  # some ad-hoc mod for 14L emualtor paper
         if reorder_cmap:
             self.cmap = reorder_colors_function(
-                cmapname, len(self._species_name)
+                cmapname, num_colors
             )
         else:
-            self.cmap = plt.get_cmap(cmapname, len(self._species_name))
+            self.cmap = plt.get_cmap(cmapname, num_colors)
 
-        if replace_first_color:
+        if replace_first_color == True:
             # Get the colors from the colormap
-            colors = [self.cmap(i) for i in range(self.cmap.N)]
+            colors = [self.cmap(i) for i in range(self.cmap.N-2)]
             # Replace the first color with tab:pink
-            colors = [clr.to_rgba("tab:pink")] + colors
+            colors = [clr.to_rgba("tab:red")] + colors + [clr.to_rgba("tab:pink")]
             # Create a new colormap with the modified colors
             self.cmap = clr.ListedColormap(colors)
+        elif replace_first_color == "match_last_pink":
+            colors = [self.cmap(i) for i in range(self.cmap.N-2)]
+            colors = colors + [clr.to_rgba("tab:pink")]
+            self.cmap = clr.ListedColormap(colors)
+        else:
+            pass
 
         # Get the number of unqie colors
         self._make_colorbar_colors()
-        self._show_colorbar_mpl(
-            cbar_labelsize=cbar_labelsize, embed_colorbar=embed_colorbar
-        )
+        if show_colorbar:
+            self._show_colorbar_mpl(
+                cbar_labelsize=cbar_labelsize, embed_colorbar=embed_colorbar
+            )
 
         # Plot emission and absorption components
         self._plot_emission_mpl(
@@ -1318,7 +1329,7 @@ class SDECPlotter:
             self.ax.plot(
                 plot_wavelength,
                 spec_model,
-                color="tab:red",
+                color="black",
                 ls="-",
                 alpha=0.6,
                 label=f"{packets_mode.capitalize()} Spectrum",
@@ -1578,7 +1589,7 @@ class SDECPlotter:
             self.cbar_legend = self.ax.legend(
                 handles=legend_elements,
                 loc="upper right",
-                bbox_to_anchor=(0.78, 1.0),
+                # bbox_to_anchor=(0.78, 1.0),
                 fontsize=cbar_labelsize,
                 frameon=True,
                 fancybox=True,
@@ -1804,8 +1815,9 @@ class SDECPlotter:
                     y=self.modeled_spectrum_luminosity.value,
                     mode="lines",
                     line={
-                        "color": "blue",
-                        "width": 1,
+                        "color": "black",
+                        "width": 1.5,
+                        "alpha":0.8,
                     },
                     name=f"{packets_mode.capitalize()} Spectrum",
                     hovertemplate="(%{x:.2f}, %{y:.3g})",

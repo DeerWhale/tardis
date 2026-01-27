@@ -1,5 +1,6 @@
 import logging
 import matplotlib.pyplot as plt
+import matplotlib.colors as clr
 import matplotlib.cm as cm
 import plotly.graph_objects as go
 import numpy as np
@@ -249,6 +250,7 @@ class LIVPlotter:
         cmapname,
         num_bins,
         nelements,
+        replace_first_color=False
     ):
         """
         Prepare data and settings required for generating a plot.
@@ -312,7 +314,17 @@ class LIVPlotter:
 
         self._make_colorbar_labels()
         self.cmap = plt.get_cmap(cmapname, len(self._species_name))
+        if replace_first_color == True:
+            # Get the colors from the colormap
+            colors = [self.cmap(i) for i in range(self.cmap.N-1)]
+            # Replace the first color with tab:pink
+            colors = [clr.to_rgba("red")] + colors[:-1] + [clr.to_rgba("tab:pink")]
+            # Create a new colormap with the modified colors
+            self.cmap = clr.ListedColormap(colors)
+
         self._make_colorbar_colors()
+
+
 
         if packet_wvl_range is None:
             self.packet_nu_line_range_mask = np.ones(
@@ -378,6 +390,7 @@ class LIVPlotter:
         ylog_scale=False,
         num_bins=None,
         velocity_range=None,
+        replace_first_color = False, 
     ):
         """
         Generate the last interaction velocity distribution plot using matplotlib.
@@ -429,6 +442,7 @@ class LIVPlotter:
             cmapname,
             num_bins,
             nelements,
+            replace_first_color = replace_first_color
         )
 
         bin_edges = self.new_bin_edges
@@ -447,7 +461,7 @@ class LIVPlotter:
                 self.step_y,
                 label=name,
                 color=color,
-                linewidth=2.5,
+                linewidth=2 if name!="He" else 3,
                 drawstyle="steps-post",
                 alpha=0.75,
             )
