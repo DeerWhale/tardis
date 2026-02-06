@@ -32,7 +32,8 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
         zero_Ca_density=False,
         zero_Ca_velocity=False,
         pure_C_velocity=None,
-        stratification_composition=None,
+        stratification_composition_linear_change=None,
+        stratification_composition_step_change=None,
         move_Ca_mass_fraction_to_atomic_number=None,
         zero_IME_mass_fraction=False,
     ):
@@ -42,8 +43,8 @@ class InnerVelocitySolverWorkflow(SimpleTARDISWorkflow):
             zero_Ca_density=zero_Ca_density,
             zero_Ca_velocity=zero_Ca_velocity,
             pure_C_velocity=pure_C_velocity,
-            stratification_composition=stratification_composition,
-            move_Ca_mass_fraction_to_atomic_number=move_Ca_mass_fraction_to_atomic_number,
+            stratification_composition_linear_change=stratification_composition_linear_change,
+            stratification_composition_step_change=stratification_composition_step_change,
             zero_IME_mass_fraction=zero_IME_mass_fraction,
         )
         self.mean_optical_depth = mean_optical_depth.lower()
