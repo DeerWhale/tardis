@@ -101,6 +101,9 @@ class SimpleTARDISWorkflow(WorkflowLogging):
                 * (t_exp / t0) ** 3
             )
             if zero_Ca_density is not None:
+                assert zero_Ca_velocity is None, (
+                    "Cannot set both zero_Ca_density and zero_Ca_velocity, please only pick one of them."
+                )
                 index_of_zero_Ca = np.argmin(
                     np.abs(density_at_t0 - zero_Ca_density)
                 )
