@@ -40,7 +40,8 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         move_Ca_mass_fraction_to_atomic_number=None,
         zero_IME_mass_fraction=False,
         pure_C_velocity=None,
-        stratification_composition=None,
+        stratification_composition_linear_change=None,
+        stratification_composition_step_change=None,
         average_abundance=False,
     ):
         """A simple TARDIS workflow that runs a simulation to convergence
@@ -61,10 +62,15 @@ class SimpleTARDISWorkflow(WorkflowLogging):
             If true, set all IME (Z=12,14,16,20) mass fractions to zero instead of just Calcium, by default False
         pure_C_velocity : float, optional
             If set, the velocity (in km/s) above which the composition is set to pure Carbon, by default None
-        stratification_composition : dict, optional
+        stratification_composition_linear_change : dict, optional
             A dictionary specifying which element to set to have linearly varying abundance from v_start to v_stop
             such as {"atomic_number": 6, "ratio_at_v_end": 2.0} would mean that the abundance of Carbon (Z=6) would vary linearly
             from its original value at v_start to 2 times its original value at v_stop, by default None
+            (this was added to testing uniform vs stratified abundance profiles during review stage)
+        stratification_composition_step_change : dict, optional
+            A dictionary specifying which element to set to have varying uniform abundance to be a two zone abundance,
+            such as {"atomic_number": 6, "v_transition_km_s": 15000, "mass_fraction_outer_zone": 1} would mean that the abundance of Carbon (Z=6) after v_transition_km_s=15000 km/s
+            from its original value to mass_fraction_outer_zone=1 in the second half, by default None
             (this was added to testing uniform vs stratified abundance profiles during review stage)
         average_abundance : bool, optional
             If true, average the abundance of each element across all shell weighted by density, by default False
@@ -223,9 +229,17 @@ class SimpleTARDISWorkflow(WorkflowLogging):
         if average_abundance:
             # average the abundance of each element across all shell weighted by density
             density = self.simulation_state.density.to(u.g / u.cm**3).value
+            Ca_Z = 20
+            Ca_index_in_row = self.simulation_state.composition.elemental_mass_fraction.index.get_loc(
+                Ca_Z
+            )
             for i in range(
                 self.simulation_state.composition.nuclide_mass_fraction.shape[0]
             ):
+                if i == Ca_index_in_row:
+                    print("Skipping Calcium averaging as requested.")
+                    continue  # skip Calcium
+
                 self.simulation_state.composition.nuclide_mass_fraction.iloc[
                     i, :
                 ] = np.average(
@@ -245,22 +259,26 @@ class SimpleTARDISWorkflow(WorkflowLogging):
             )
 
         ### additional stratification of element
-        if stratification_composition is not None:
+        if stratification_composition_linear_change is not None:
             print(
                 "\n\n -- Applying stratified abundance profile:",
-                stratification_composition,
+                stratification_composition_linear_change,
             )
             og_shell_total_mass_fractions = (
                 self.simulation_state.composition.nuclide_mass_fraction.sum(
                     axis=0
                 )
             )
-            Z_to_stratify = int(stratification_composition["atomic_number"])
-            ratio_at_v_end = float(stratification_composition["ratio_at_v_end"])
+            Z_to_stratify = int(
+                stratification_composition_linear_change["atomic_number"]
+            )
+            ratio_at_v_end = float(
+                stratification_composition_linear_change["ratio_at_v_end"]
+            )
             original_Z_mass_fraction = (
-                self.simulation_state.composition.elemental_mass_fraction.loc[
+                self.simulation_state.composition.nuclide_mass_fraction.loc[
                     Z_to_stratify
-                ].values
+                ].values[0]
             )
             target_Z_mass_fraction = np.linspace(
                 original_Z_mass_fraction[0],
@@ -293,6 +311,70 @@ class SimpleTARDISWorkflow(WorkflowLogging):
                 ),
                 og_shell_total_mass_fractions,
             )
+        ### additional stratification of element by step function
+        if stratification_composition_step_change is not None:
+            print(
+                "\n\n -- Applying stratified abundance profile:",
+                stratification_composition_step_change,
+            )
+            og_shell_total_mass_fractions = (
+                self.simulation_state.composition.nuclide_mass_fraction.sum(
+                    axis=0
+                )
+            )
+            Z_to_stratify = int(
+                stratification_composition_step_change["atomic_number"]
+            )
+            v_transition_km_s = float(
+                stratification_composition_step_change["v_transition_km_s"]
+            )
+            mass_fraction_outer_zone = float(
+                stratification_composition_step_change[
+                    "mass_fraction_outer_zone"
+                ]
+            )
+            original_Z_mass_fraction = (
+                self.simulation_state.composition.nuclide_mass_fraction.loc[
+                    Z_to_stratify
+                ].values[0]
+            )
+            target_Z_mass_fraction = (
+                np.ones_like(original_Z_mass_fraction)
+                * original_Z_mass_fraction[0]
+            )
+            w_above_v_transition = np.where(
+                self.simulation_state.v_inner.to(u.km / u.s).value
+                >= v_transition_km_s
+            )
+            target_Z_mass_fraction[w_above_v_transition] = (
+                mass_fraction_outer_zone
+            )
+            target_Z_mass_fraction = np.clip(
+                target_Z_mass_fraction, 0.0, 1.0
+            )  # cap the mass fraction to be between 0 and 1
+            one_minus_target_Z_mass_fraction = 1.0 - target_Z_mass_fraction
+            self.simulation_state.composition.nuclide_mass_fraction = (
+                self.simulation_state.composition.nuclide_mass_fraction
+                * (
+                    one_minus_target_Z_mass_fraction
+                    / (
+                        self.simulation_state.composition.nuclide_mass_fraction.sum(
+                            axis=0
+                        )
+                        - original_Z_mass_fraction
+                    )
+                )
+            )
+            self.simulation_state.composition.nuclide_mass_fraction.loc[
+                Z_to_stratify, :
+            ] = target_Z_mass_fraction
+
+            # np.testing.assert_allclose(
+            #     self.simulation_state.composition.nuclide_mass_fraction.sum(
+            #         axis=0
+            #     ),
+            #     og_shell_total_mass_fractions,
+            # )
 
         plasma_solver_factory = PlasmaSolverFactory(
             atom_data,
